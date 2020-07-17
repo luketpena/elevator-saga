@@ -1,5 +1,8 @@
 {
     init: function(elevators, floors) {
+        console.log(elevators);
+
+        /*--------< Define Functions >--------*/
         //#region Direction Controls
         function setDirection(e,direction) {
             e.goingUpIndicator( (direction==="up") );
@@ -20,34 +23,88 @@
             return "none";
         }
         //#endregion
-        
         //#region Other Functions
         function sortArray(array,direction) {
             switch(direction) {
-                case "desc": return array.sort(function(a, b){return b-a});
-                case "asc":  return array.sort(function(a, b){return a-b});
+                case "up":  return array.sort(function(a, b){return a-b});
+                case "down": return array.sort(function(a, b){return b-a});
             }
             return array;
         }
-        //#endregion
-        
-        for (let i=0; i<elevators.length; i++) {
-            let e = elevators[i];
+         
+        function findActiveFloors(e,index) {
+            //Checking to see if any floors have their buttons pressed
+            let currentFloor = e.currentFloor();
+            let activeFloors = floors.filter( f=> (f.buttonStates.up || f.buttonStates.down));
+            if (activeFloors.length>0) {
+  
+                let nearestFloor = activeFloors[0].level;
+                let freeUp = true; //Indicates that the floor has unclaimed passengers going up
+                let freeDown = true; //Indicates that the floor has unclaimed passengers going down 
+                let direction = 'any'; //Defaults to empty, only changes if required
 
-            console.log(e);
-            elevatorInit(e);
+                for (let f of activeFloors) {
+                    //Checking the distance of floors with math
+                    if (Math.abs(currentFloor.level-f.level)<Math.abs(currentFloor.level-nearestFloor)) {
+                        //We have to check if someone is already going there
+                        
+                        elevators.forEach( (elevator,i)=> {
+                            //If the index is in their queue
+                            if (i!==index && elevator.destinationQueue.indexOf(f.level)!==-1) {  
+                                //Check if someone else is going to it up OR down
+                                let goingUpCheck = (getDirection(elevator)==='up' && f.buttonStates.up);
+                                let goingDownCheck = (getDirection(elevator)==='down' && f.buttonStates.down);
+                                if (goingUpCheck) targetedForUp = false;
+                                if (goingDownCheck) targetedForDown = false;
+                            }
+                        });                  
+                    } //END of check if floor is closer
+
+                    //If a free up or down position is found, then
+                    if (freeUp || freeDown) {
+                        nearestFloor = f.level;
+                        if (freeUp && freeDown) {
+                            direction = 'any';
+                        } else {
+                            if (freeUp && !freeDown) direction = 'up';
+                            if (!freeUp && freeDown) direction = 'down';
+                        }
+                    } //END free up and down check   
+                } //END loop through floors              
+
+                if (nearestFloor!==currentFloor.level) {
+                    //If a different floor is close and populated, go to that floor
+                    if (direction==='any') {
+                        //Favors going down if in the upper half and vice versa
+                        if (nearestFloor>floors.length/2) {
+                            setDirection(e,'down');
+                        } else {
+                            setDirection(e,'up');
+                        }
+                    } else {
+                        setDirection(e,direction);
+                    }
+                    e.goToFloor(nearestFloor);
+                }   
+            } //END active floor length check
+        } //END fincActiveFloors function
+        //#endregion  
+
+        /*--------< Initiate Elevators and Floors >--------*/
+        elevators.forEach( (e,i)=> elevatorInit(e,i));
+        floors.forEach( (f,i)=> floorInit(f,i));
+
+        /*--------< Running the Elevators >--------*/
+        function elevatorInit(e,index) {
+            //Starts at a default empty state
             setDirection(e,'none');
-        }
 
-        for (let i=0; i<floors.length; i++) {
-            floorInit(floors[i],i);
-        }
-
-        function elevatorInit(e) {
-
+            //#region Elevator Idle
             e.on('idle', ()=>{
-                
-                let pressedFloors = e.getPressedFloors();
+                //Setup
+                let direction = getDirection(e);
+                let pressedFloors = sortArray(e.getPressedFloors(),direction);
+
                 if (pressedFloors.length>0) {
                     //If floors are loaded up, go to those floors
                     for (let f of pressedFloors) {
@@ -61,118 +118,68 @@
                     if (currentFloor>floors.length/2) {
                         if (currentFloor.buttonStates.down) setDirection(e,'down')
                         else if (currentFloor.buttonStates.up) setDirection(e,'up')
-                        else findActiveFloors();
+                        else findActiveFloors(e,index);
                     } else {
                         if (currentFloor.buttonStates.up) setDirection(e,'up')
                         else if (currentFloor.buttonStates.down) setDirection(e,'down')
-                        else findActiveFloors();
-                    }                    
-
-                    function findActiveFloors() {
-                        //Checking to see if any floors have their buttons pressed
-                        let activeFloors = floors.filter( f=> (f.buttonStates.up || f.buttonStates.down));
-                        if (activeFloors.length>0) {
-              
-                            let nearestFloor = activeFloors[0].level;
-                            let freeUp = true;
-                            let freeDown = true;
-                            let direction = 'any';
-
-                            for (let f of activeFloors) {
-                                //Checking the distance of floors with math
-                                if (Math.abs(currentFloor.level-f.level)<Math.abs(currentFloor.level-nearestFloor)) {
-                                    //We have to check if someone is already going there
-                                    
-                                    for (let e of elevators) {
-                                        //If the index is in their queue
-                                        if (e.destinationQueue.indexOf(f.level)!==-1) {
-                                            //Check if someone is going to it up OR down
-                                            let goingUpCheck = (getDirection(e)==='up' && f.buttonStates.up);
-                                            let goingDownCheck = (getDirection(e)==='down' && f.buttonStates.down);
-                                            if (goingUpCheck) targetedForUp = false;
-                                            if (goingDownCheck) targetedForDown = false;
-                                        }
-                                    }
-                                    if (freeUp || freeDown) {
-                                        nearestFloor = f.level;
-                                        if (freeUp && freeDown) {
-                                            direction = 'any'
-                                        } else {
-                                            if (freeUp && !freeDown) direction = 'up';
-                                            if (!freeUp && freeDown) direction = 'down';
-                                        }
-                                    } //END free up and down check                                   
-                                } //END of check if floor is closer
-                            }
-
-                            if (nearestFloor!==currentFloor.level) {
-                                //If a different floor is close and populated, go to that floor
-                                console.log('NEAREST POPULATED LEVEL:',nearestFloor);
-                                if (direction==='any') {
-                                    if (nearestFloor>floors.length/2) {
-                                        setDirection(e,'down');
-                                    } else {
-                                        setDirection(e,'up');
-                                    }
-                                } else {
-                                    setDirection(e,direction);
-                                }
-                                e.goToFloor(nearestFloor);
-
-                            }   
-                        } //END active floor length check
-                    } //END fincActiveFloors function
+                        else findActiveFloors(e,index);
+                    }                       
                 } //END looking for populated floors
-
             });
+            //#endregion
 
-            e.on('passing_floor', (floorNum,direction)=>{     
-                if (e.loadFactor()<.8) {
-                    const floor = floors[floorNum];
-                    if ( (floor.buttonStates.up && direction==='up') || (floor.buttonStates.down && direction==='down')) {
-                        let newQueue = [floorNum, ...e.destinationQueue];
-                        e.stop();
-                        for (let f of newQueue) {
-                            e.goToFloor(f);
+            //#region Elevator Passing Floor
+            e.on('passing_floor', (floorNum,direction)=>{ 
+                setDirection(e,direction);
+                //This limiter forces it to prioritize deliver a mostly empty elevator rather than interrupting its movement 
+                if (e.loadFactor()===0) {
+                    let queue = e.destinationQueue;
+                    for (let elevator of elevators) {
+                        //If the index is in their queue
+                        if (elevator.destinationQueue.indexOf(queue[0])!==-1) {
+                            console.log('DUPLICATE TARGET!'); 
+                            e.stop();
+                            setDirection(e,'none');
+                            findActiveFloors(e,index);
+                            break;
                         }
+                    }
+
+                } else if (e.loadFactor()<.8) {
+                    const floor = floors[floorNum];
+                    //Checking if the floor has an active button that matches movement direction
+                    if ( (floor.buttonStates.up && direction==='up') || (floor.buttonStates.down && direction==='down')) {
+                        let newQueue = sortArray([floorNum, ...e.destinationQueue], direction);
+                        e.stop();
+                        newQueue.forEach(f=>e.goToFloor(f));
                     }
                 }
             });
-
+            //#endregion
         }
 
         function floorInit(f,index) {
             
             function checkElevators(direction) {
-                let elevatorList = []
-                for (let e of elevators) {
-                    
-                    let eDirection = getDirection(e);
-                    
-
-                    if (eDirection==='none') {
-                        elevatorList.push(e);
-                    }
-                }
-                if (elevatorList.length>0) {
-                    let nearestElevator = elevatorList[0];
-                    for (let e of elevatorList) {
+                //Check if any elevators are empty
+                let emptyElevators = elevators.filter(e=> {return getDirection(e)==='none'});
+                if (emptyElevators.length>0) {
+                    let nearestElevator = emptyElevators[0];
+                    //Find which elevator is closest
+                    emptyElevators.forEach(e=>{
                         let currentFloor = e.currentFloor();
                         if (Math.abs(index-currentFloor)<Math.abs(index-nearestElevator.currentFloor() )) {
                             nearestElevator = e;
                         }
-                    }
+                    });
+                    //Call that elevator to this floor
                     setDirection(nearestElevator,direction);
                     nearestElevator.goToFloor(index);
                 }
             }
-
-            f.on('up_button_pressed', ()=> {
-                checkElevators("up");
-            })
-            f.on('down_button_pressed', ()=> {
-                checkElevators("down")
-            })
+            //Trigger looking for nearby empty elevators on button presses
+            f.on('up_button_pressed',   ()=> checkElevators("up"));
+            f.on('down_button_pressed', ()=> checkElevators("down"));
         }
         
     },

@@ -30,6 +30,8 @@
             return array;
         }
         //#endregion
+
+        let masterQueue = [];
         
         for (let i=0; i<elevators.length; i++) {
             let e = elevators[i];
@@ -46,10 +48,11 @@
         function elevatorInit(e) {
 
             e.on('idle', ()=>{
-                
+                e.destinationQueue = [];
                 let pressedFloors = e.getPressedFloors();
                 if (pressedFloors.length>0) {
                     //If floors are loaded up, go to those floors
+                    e.stop();
                     for (let f of pressedFloors) {
                         e.goToFloor(f);
                     }
@@ -70,67 +73,43 @@
 
                     function findActiveFloors() {
                         //Checking to see if any floors have their buttons pressed
-                        let activeFloors = floors.filter( f=> (f.buttonStates.up || f.buttonStates.down));
-                        if (activeFloors.length>0) {
+                        if (masterQueue.length>0) {
               
-                            let nearestFloor = activeFloors[0].level;
-                            let freeUp = true;
-                            let freeDown = true;
-                            let direction = 'any';
-
-                            for (let f of activeFloors) {
-                                //Checking the distance of floors with math
-                                if (Math.abs(currentFloor.level-f.level)<Math.abs(currentFloor.level-nearestFloor)) {
-                                    //We have to check if someone is already going there
-                                    
-                                    for (let e of elevators) {
-                                        //If the index is in their queue
-                                        if (e.destinationQueue.indexOf(f.level)!==-1) {
-                                            //Check if someone is going to it up OR down
-                                            let goingUpCheck = (getDirection(e)==='up' && f.buttonStates.up);
-                                            let goingDownCheck = (getDirection(e)==='down' && f.buttonStates.down);
-                                            if (goingUpCheck) targetedForUp = false;
-                                            if (goingDownCheck) targetedForDown = false;
-                                        }
-                                    }
-                                    if (freeUp || freeDown) {
-                                        nearestFloor = f.level;
-                                        if (freeUp && freeDown) {
-                                            direction = 'any'
-                                        } else {
-                                            if (freeUp && !freeDown) direction = 'up';
-                                            if (!freeUp && freeDown) direction = 'down';
-                                        }
-                                    } //END free up and down check                                   
-                                } //END of check if floor is closer
+                            for (let i=0; i<masterQueue.length; i++) {
+                                let item = masterQueue[i];
+                                setDirection(e,item.dir);
+                                e.goToFloor(item.level);
+                                masterQueue.shift();
+                                console.log('Master queue:',masterQueue);
                             }
 
-                            if (nearestFloor!==currentFloor.level) {
-                                //If a different floor is close and populated, go to that floor
-                                console.log('NEAREST POPULATED LEVEL:',nearestFloor);
-                                if (direction==='any') {
-                                    if (nearestFloor>floors.length/2) {
-                                        setDirection(e,'down');
-                                    } else {
-                                        setDirection(e,'up');
-                                    }
-                                } else {
-                                    setDirection(e,direction);
-                                }
-                                e.goToFloor(nearestFloor);
-
-                            }   
                         } //END active floor length check
                     } //END fincActiveFloors function
                 } //END looking for populated floors
 
             });
 
+            e.on('stopped_at_floor', (floorNum)=>{
+                let floorUp = floors[floorNum].buttonStates.up;
+                let floorDown = floors[floorNum].buttonStates.down;
+                
+                let direction = getDirection(e);
+
+                if ((direction==='down' && floorDown) || (direction==='up' && floorUp)) masterQueue.unshift({level: floorNum, dir: direction});
+            });
+
             e.on('passing_floor', (floorNum,direction)=>{     
-                if (e.loadFactor()<.8) {
+                if (e.loadFactor()<.7) {
                     const floor = floors[floorNum];
                     if ( (floor.buttonStates.up && direction==='up') || (floor.buttonStates.down && direction==='down')) {
                         let newQueue = [floorNum, ...e.destinationQueue];
+
+                        for (let i=0; i<masterQueue.length; i++) {
+                            let item = masterQueue[i];
+                            if (item.level===floor && item.dir===direction) {
+                                masterQueue.splice(i,0);
+                            }
+                        }
                         e.stop();
                         for (let f of newQueue) {
                             e.goToFloor(f);
@@ -148,8 +127,6 @@
                 for (let e of elevators) {
                     
                     let eDirection = getDirection(e);
-                    
-
                     if (eDirection==='none') {
                         elevatorList.push(e);
                     }
@@ -169,9 +146,11 @@
 
             f.on('up_button_pressed', ()=> {
                 checkElevators("up");
+                if (masterQueue.indexOf(f.level)===-1) masterQueue.push({level: f.level, dir: 'up'});
             })
             f.on('down_button_pressed', ()=> {
                 checkElevators("down")
+                if (masterQueue.indexOf(f.level)===-1) masterQueue.push({level: f.level, dir: 'down'});
             })
         }
         
